@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 *)",
+      "Bash(xattr *)",
+      "Bash(cp /Users/hazounne/Desktop/Projects/coprep/src/model/trainer.py /tmp/trainer_copy.py)",
+      "Read(//tmp/**)",
+      "Bash(git *)"
+    ]
+  }
+}
