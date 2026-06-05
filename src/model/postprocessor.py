@@ -3,8 +3,8 @@ import typing as tp
 import pandas as pd
 import numpy as np
 
-LIST_PREFIX = ["STEP_WEIGHT_", "STEP_RPM_", "STEP_PH_", "STEP_SIZE_", "STEP_METERIAL_"]
-PATTERN_METERIAL = re.compile(r"^STEP_METERIAL_(\d+)")
+LIST_PREFIX = ["STEP_WEIGHT_", "STEP_RPM_", "STEP_PH_", "STEP_SIZE_", "STEP_MATERIAL_"]
+PATTERN_MATERIAL = re.compile(r"^STEP_MATERIAL_(\d+)")
 PATTERN_GENERAL = re.compile(r"_(\d+)$")
 
 MATERIAL_FILTER_TERMS = [
@@ -28,8 +28,8 @@ def _build_step_col_map(df: pd.DataFrame, include_material: bool) -> dict:
     col_map = {p: [] for p in prefixes}
     for col in df.columns:
         n = None
-        if col.startswith("STEP_METERIAL_"):
-            m = PATTERN_METERIAL.match(col)
+        if col.startswith("STEP_MATERIAL_"):
+            m = PATTERN_MATERIAL.match(col)
             if m:
                 n = int(m.group(1))
         if n is None:
@@ -82,7 +82,7 @@ def augment_data(df: pd.DataFrame, include_material: bool = False) -> pd.DataFra
 
 def filter_material(df_x: pd.DataFrame) -> pd.DataFrame:
     """원료 물성 컬럼을 핵심 항목만 남김."""
-    mat_cols = df_x.filter(like="STEP_METERIAL").columns.tolist()
+    mat_cols = df_x.filter(like="STEP_MATERIAL").columns.tolist()
     keep = [c for c in mat_cols if any(t in c for t in MATERIAL_FILTER_TERMS)]
     drop = list(set(mat_cols) - set(keep))
     return df_x.drop(columns=drop)
@@ -98,7 +98,7 @@ def postprocess_by_product(
         df_x, df_y = df_x.drop(bad), df_y.drop(bad)
         df_x, df_y = df_x.reset_index(drop=True), df_y.reset_index(drop=True)
 
-        for prefix in ["STEP_RPM_", "STEP_PH_", "STEP_METERIAL_"]:
+        for prefix in ["STEP_RPM_", "STEP_PH_", "STEP_MATERIAL_"]:
             drop_cols = df_x.filter(like=f"{prefix}01").columns
             df_x = df_x.drop(columns=drop_cols)
         for base in ["STEP_WEIGHT_Metal", "STEP_WEIGHT_NaOH", "STEP_WEIGHT_NH4OH"]:
