@@ -213,14 +213,16 @@ $$STEP\_MATERIAL\_\{step\}\_\{mat\}\_\{prop\} = \frac{\sum_k w_k \cdot p_k}{\sum
 
 tracker의 `step_info`에 저장된 LOT별 누적 투입량($w_k$)과, `data["원재료"]`에서 조회한 물성($p_k$)을 사용.
 
-대상 물성 5개:
-| 피처 접미사 | 원재료 종류 | 물성 컬럼 |
-|---|---|---|
-| 황산망간_성분_ChemicalComposition(C01)_Mn | MNSO4 | Mn |
-| 황산망간_성분_InitialPH(C03)_pH | MNSO4 | pH |
-| 황산니켈_성분_ChemicalComposition(C01)_Ni | NISO4 | Ni |
-| 가성소다_성분_ChemicalComposition(C01)_NaOH | NAOH | NaOH |
-| 황산코발트_투입량 | COSO4 | (투입중량 자체) |
+대상 물성 5개 (기존 `MATERIAL_FILTER_TERMS` 그대로 유지, 변경하지 않음):
+| 피처 접미사 | 원재료 종류 | 물성 컬럼 | 비고 |
+|---|---|---|---|
+| 황산망간_성분_ChemicalComposition(C01)_Mn | MNSO4 | Mn | 가중합 |
+| 황산망간_성분_InitialPH(C03)_pH | MNSO4 | pH | 가중합 |
+| 황산니켈_성분_ChemicalComposition(C01)_Ni | NISO4 | Ni | 가중합 |
+| 가성소다_성분_ChemicalComposition(C01)_NaOH | NAOH | NaOH | 가중합 |
+| 황산코발트_투입량 | COSO4 | (투입중량 자체) | 기존 그대로 유지 |
+
+NH4OH 원재료: 기존에도 `MATERIAL_FILTER_TERMS`에 없으므로 가중합 대상 아님. 로드만 하고 미사용 (기존 동작 유지).
 
 결과 컬럼: `STEP_MATERIAL_{01~60}_{물성접미사}` (5물성 × 60스텝 = 300컬럼)
 
