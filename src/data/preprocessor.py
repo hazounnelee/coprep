@@ -14,20 +14,18 @@ INIT_COLUMNS = [
     "반응투입_초기조건_pH",
     "반응투입_초기조건_N2주입유량",
     "반응투입_초기조건_N2PURGE시간",
-    "반응투입_초기조건_IMPELLAR교반속도",
 ]
 
-SHEET3_COLS = {
-    "반응투입_초기조건_작업시간": "작업\n시간",
-    "반응투입_초기조건_순수온도": "순수\n온도",
-    "반응투입_초기조건_순수투입중량(kg)": "순수\n투입 중량(kg)",
-    "반응투입_초기조건_NAOH투입중량(kg)": "NAOH\n투입중량(kg)",
-    "반응투입_초기조건_NH4OH투입중량(kg)": "NH4OH\n투입중량(kg)",
+INIT_COL_MAP = {
+    "반응투입_초기조건_작업시간": "작업시간",
+    "반응투입_초기조건_순수온도": "순수온도",
+    "반응투입_초기조건_순수투입중량(kg)": "순수투입중량(kg)",
+    "반응투입_초기조건_NAOH투입중량(kg)": "NAOH순수투입중량(kg)",
+    "반응투입_초기조건_NH4OH투입중량(kg)": "NH4OH순수투입중량(kg)",
     "반응투입_초기조건_용존산소량": "용존산소량",
-    "반응투입_초기조건_pH": "pH",
-    "반응투입_초기조건_N2주입유량": "N2\n주입 유량",
-    "반응투입_초기조건_N2PURGE시간": "N2\nPURGE 시간",
-    "반응투입_초기조건_IMPELLAR교반속도": "IMPELLAR\n교반 속도",
+    "반응투입_초기조건_pH": "Ph",
+    "반응투입_초기조건_N2주입유량": "N2주입유량",
+    "반응투입_초기조건_N2PURGE시간": "N2 PURGE시간",
 }
 
 # 수기운전일지 컬럼 인덱스 (time, dmin, d10, d50, d90, dmax)
@@ -39,6 +37,15 @@ _STEP_PREFIXES = ["STEP_WEIGHT_Metal_", "STEP_WEIGHT_NaOH_", "STEP_WEIGHT_NH4OH_
 _SIZE_PREFIXES = ["STEP_SIZE_DMIN_", "STEP_SIZE_D10_", "STEP_SIZE_D50_",
                   "STEP_SIZE_D90_", "STEP_SIZE_DMAX_"]
 
+# Material weighted-sum feature suffixes (must align with postprocessor MATERIAL_FILTER_TERMS)
+_MATERIAL_SUFFIXES = [
+    "_황산망간_성분_ChemicalComposition(C01)_Mn",
+    "_황산망간_성분_InitialPH(C03)_pH",
+    "_황산니켈_성분_ChemicalComposition(C01)_ni",
+    "_가성소다_성분_ChemicalComposition(C01)_NaOH",
+    "_황산코발트_투입량",
+]
+
 
 def _load_seq(path: str) -> pd.DataFrame:
     return pd.read_csv(path, sep="\t", header=None, names=["idx", "time"])
@@ -48,32 +55,34 @@ def _step_col(prefix: str, j: int) -> str:
     return f"{prefix}{str(j + 1).zfill(2)}"
 
 
+def _case_insensitive_get(d: dict, key: str) -> tp.Any:
+    """Lookup key in dict d with case-insensitive matching."""
+    key_lower = key.lower()
+    for k, v in d.items():
+        if k.lower() == key_lower:
+            return v
+    return None
+
+
 class DataPreprocesser:
 
     def __init__(
         self,
-        dict_raw: tp.Dict[str, pd.DataFrame],
-        list_lines: tp.List[str],
+        df_tracked: pd.DataFrame,
         seq_path: str,
         is_material: bool,
         is_handrecorded: bool,
     ) -> None:
-        self.dict_raw = dict_raw
-        self.list_lines = list_lines
+        self.df_tracked = df_tracked
         self.is_material = is_material
         self.is_handrecorded = is_handrecorded
         self.df_seq = _load_seq(seq_path)
-        self.dict_lines_preprocessed, self.dict_df_filtered = self._preprocess_all()
+        self.df_preprocessed, self.df_filtered = self._preprocess()
 
-    def _preprocess_all(self) -> tp.Tuple[dict, dict]:
-        preprocessed, filtered = {}, {}
-        for line in self.list_lines:
-            df_raw = self.dict_raw[line]
-            df_raw = self._filter(df_raw)
-            df_pre = self._build_features(df_raw)
-            preprocessed[line] = df_pre
-            filtered[line] = df_raw
-        return preprocessed, filtered
+    def _preprocess(self) -> tp.Tuple[pd.DataFrame, pd.DataFrame]:
+        df_raw = self._filter(self.df_tracked)
+        df_pre = self._build_features(df_raw)
+        return df_pre, df_raw
 
     def _filter(self, df: pd.DataFrame) -> pd.DataFrame:
         if self.is_material:
@@ -81,7 +90,7 @@ class DataPreprocesser:
                              if not any(t in c for t in ["df_handrecorded", "step_info", "df_coso4"])]
             df = df.dropna(subset=non_step_cols)
         else:
-            df = df.dropna(subset=["df_reacted"])
+            df = df.dropna(subset=["df_react_init"])
 
         if self.is_handrecorded:
             df = df.dropna(subset=["df_handrecorded", "steps_num"])
@@ -90,15 +99,20 @@ class DataPreprocesser:
 
     def _build_features(self, df_raw: pd.DataFrame) -> pd.DataFrame:
         n = len(df_raw)
-        idx = df_raw.index
 
-        # 초기조건: pre-allocate as float64 (np.nan seeds float dtype, not object)
+        # 초기조건: 9 columns from df_react_init dict (case-insensitive)
         init_data = {col: np.full(n, np.nan) for col in INIT_COLUMNS}
         for i, (_, row) in enumerate(df_raw.iterrows()):
-            sheet3 = row["df_reacted"]["Sheet3"]
-            for feat_col, sheet_col in SHEET3_COLS.items():
-                val = str(sheet3[sheet_col][0]).replace(",", "")
-                init_data[feat_col][i] = float(val)
+            react_init = row["df_react_init"]
+            if react_init is None or not isinstance(react_init, dict):
+                continue
+            for feat_col, source_key in INIT_COL_MAP.items():
+                val = _case_insensitive_get(react_init, source_key)
+                if val is not None:
+                    try:
+                        init_data[feat_col][i] = float(str(val).replace(",", ""))
+                    except (ValueError, TypeError):
+                        pass
 
         # 스텝 피처: pre-allocate as float64
         step_data: tp.Dict[str, np.ndarray] = {
@@ -134,6 +148,9 @@ class DataPreprocesser:
         if self.is_handrecorded:
             df = self._interpolate_handrecorded(df, df_raw)
 
+        if self.is_material:
+            df = self._build_material_features(df, df_raw)
+
         return df
 
     def _interpolate_handrecorded(
@@ -151,8 +168,8 @@ class DataPreprocesser:
         }
 
         col_map = {"dmin": "STEP_SIZE_DMIN_", "d10": "STEP_SIZE_D10_",
-                   "d50": "STEP_SIZE_D50_", "d90": "STEP_SIZE_D90_",
-                   "dmax": "STEP_SIZE_DMAX_"}
+                    "d50": "STEP_SIZE_D50_", "d90": "STEP_SIZE_D90_",
+                    "dmax": "STEP_SIZE_DMAX_"}
 
         for i, (_, row) in enumerate(df_raw.iterrows()):
             df_hand = row["df_handrecorded"]
@@ -190,3 +207,243 @@ class DataPreprocesser:
 
         df = pd.concat([df, pd.DataFrame(size_data, index=df.index)], axis=1)
         return df
+
+    def _build_material_features(
+        self, df: pd.DataFrame, df_raw: pd.DataFrame
+    ) -> pd.DataFrame:
+        """Build STEP_MATERIAL_ weighted-sum features for each step.
+
+        For each batch row, at each step j (1..60), compute:
+          1. MnSO4 Mn weighted average: cumulative MnSO4 weights * property / total weight
+          2. MnSO4 pH weighted average
+          3. NiSO4 Ni weighted average
+          4. NaOH NaOH weighted average
+          5. CoSO4 total cumulative weight (not weighted average)
+        """
+        n = len(df_raw)
+        # Pre-allocate all material columns
+        mat_data: tp.Dict[str, np.ndarray] = {}
+        for j in range(INT_LENGTH):
+            step_num = str(j + 1).zfill(2)
+            for suffix in _MATERIAL_SUFFIXES:
+                col_name = f"STEP_MATERIAL_{step_num}{suffix}"
+                mat_data[col_name] = np.full(n, np.nan)
+
+        for i, (_, row) in enumerate(df_raw.iterrows()):
+            # Get material info lists (from tracker)
+            df_mnso4_info = row.get("df_mnso4")   # list of lists of lists
+            df_niso4_info = row.get("df_niso4")   # list of lists of lists
+            df_naoh_info = row.get("df_naoh")      # list of lists
+            df_coso4_info = row.get("df_coso4")    # list of lists of lists
+
+            weight_coso4 = row.get("weight_coso4")  # list of lists of weights
+            weight_mnso4 = row.get("weight_mnso4")  # list of lists of weights
+            weight_niso4 = row.get("weight_niso4")  # list of lists of weights
+
+            for j in range(INT_LENGTH):
+                step_num = str(j + 1).zfill(2)
+                step_info_col = f"step_info_{step_num}"
+                step_info = row.get(step_info_col)
+                if step_info is None or not isinstance(step_info, dict):
+                    continue
+
+                # --- MnSO4 Mn weighted average ---
+                mnso4_mn = self._compute_metal_weighted_avg(
+                    step_info, "metal", df_mnso4_info, weight_mnso4, prop_idx=1
+                )
+                if mnso4_mn is not None:
+                    mat_data[f"STEP_MATERIAL_{step_num}_황산망간_성분_ChemicalComposition(C01)_Mn"][i] = mnso4_mn
+
+                # --- MnSO4 pH weighted average ---
+                mnso4_ph = self._compute_metal_weighted_avg(
+                    step_info, "metal", df_mnso4_info, weight_mnso4, prop_idx=2
+                )
+                if mnso4_ph is not None:
+                    mat_data[f"STEP_MATERIAL_{step_num}_황산망간_성분_InitialPH(C03)_pH"][i] = mnso4_ph
+
+                # --- NiSO4 Ni weighted average ---
+                niso4_ni = self._compute_metal_weighted_avg(
+                    step_info, "metal", df_niso4_info, weight_niso4, prop_idx=1
+                )
+                if niso4_ni is not None:
+                    mat_data[f"STEP_MATERIAL_{step_num}_황산니켈_성분_ChemicalComposition(C01)_ni"][i] = niso4_ni
+
+                # --- NaOH NaOH weighted average ---
+                naoh_val = self._compute_naoh_weighted_avg(
+                    step_info, df_naoh_info
+                )
+                if naoh_val is not None:
+                    mat_data[f"STEP_MATERIAL_{step_num}_가성소다_성분_ChemicalComposition(C01)_NaOH"][i] = naoh_val
+
+                # --- CoSO4 total cumulative weight ---
+                coso4_total = self._compute_coso4_total_weight(
+                    step_info, weight_coso4
+                )
+                if coso4_total is not None:
+                    mat_data[f"STEP_MATERIAL_{step_num}_황산코발트_투입량"][i] = coso4_total
+
+        df = pd.concat([df, pd.DataFrame(mat_data, index=df.index)], axis=1)
+        return df
+
+    @staticmethod
+    def _compute_metal_weighted_avg(
+        step_info: dict,
+        metal_key: str,
+        df_material_info: tp.Optional[list],
+        weight_groups: tp.Optional[list],
+        prop_idx: int,
+    ) -> tp.Optional[float]:
+        """Compute weighted average of a material property using metal lot weights.
+
+        The metal lot list in step_info tells us which lots contributed so far.
+        weight_groups (from tracker melting) is list-of-lists: one sublist per metal LOT.
+        df_material_info is list-of-lists-of-lists: one group per metal LOT,
+        each containing sublists of [lot_no, prop1, prop2, ...].
+
+        We compute: sum(cumulative_weight_k * property_k) / sum(cumulative_weight_k)
+        where k iterates over the metal LOTs that have contributed up to this step.
+        """
+        if df_material_info is None or weight_groups is None:
+            return None
+
+        metal_info = step_info.get(metal_key)
+        if metal_info is None:
+            return None
+
+        lot_list = metal_info.get("lot_metal", [])
+        weight_dict = metal_info.get("weight", {})
+
+        if not lot_list:
+            return None
+
+        total_weighted = 0.0
+        total_weight = 0.0
+
+        for k, lot_m in enumerate(lot_list):
+            # Cumulative weight for this metal LOT
+            lot_weights = weight_dict.get(lot_m, [])
+            cum_w = sum(float(w) for w in lot_weights)
+            if cum_w == 0:
+                continue
+
+            # Get property value from df_material_info
+            # df_material_info is grouped by metal LOT (same index as lot_list order
+            # in lots_metal). Each group contains sublists for each raw material lot.
+            if k >= len(df_material_info):
+                continue
+
+            group = df_material_info[k]
+            # group is a list of lists: [[lot_no, prop1, ...], ...]
+            # For the weighted average, we average over all raw material lots
+            # in this group equally (they map to the same metal LOT).
+            if not group:
+                continue
+
+            # Simple approach: average property across all raw lots in group,
+            # then weight by cumulative metal weight
+            prop_sum = 0.0
+            prop_count = 0
+            for mat_row in group:
+                if prop_idx < len(mat_row):
+                    try:
+                        prop_sum += float(mat_row[prop_idx])
+                        prop_count += 1
+                    except (ValueError, TypeError):
+                        pass
+            if prop_count == 0:
+                continue
+
+            avg_prop = prop_sum / prop_count
+            total_weighted += cum_w * avg_prop
+            total_weight += cum_w
+
+        if total_weight == 0:
+            return None
+        return total_weighted / total_weight
+
+    @staticmethod
+    def _compute_naoh_weighted_avg(
+        step_info: dict,
+        df_naoh_info: tp.Optional[list],
+    ) -> tp.Optional[float]:
+        """Compute NaOH weighted average using step_info naoh cumulative weights.
+
+        df_naoh_info is a list of lists: [[lot_no, naoh_value], ...]
+        step_info["naoh"]["lot_naoh"] = [lot1, lot2, ...]
+        step_info["naoh"]["weight"] = {lot1: [w1, w2, ...], lot2: [...]}
+        """
+        if df_naoh_info is None:
+            return None
+
+        naoh_info = step_info.get("naoh")
+        if naoh_info is None:
+            return None
+
+        lot_list = naoh_info.get("lot_naoh", [])
+        weight_dict = naoh_info.get("weight", {})
+
+        if not lot_list:
+            return None
+
+        # Build lot -> property map from df_naoh_info
+        # df_naoh_info: [[lot_no, naoh_value], ...]
+        lot_prop_map = {}
+        for info_row in df_naoh_info:
+            if len(info_row) >= 2:
+                lot_no = str(info_row[0])
+                try:
+                    prop_val = float(info_row[1])
+                    lot_prop_map[lot_no] = prop_val
+                except (ValueError, TypeError):
+                    pass
+
+        total_weighted = 0.0
+        total_weight = 0.0
+
+        for lot_n in lot_list:
+            lot_weights = weight_dict.get(lot_n, [])
+            cum_w = sum(float(w) for w in lot_weights)
+            if cum_w == 0:
+                continue
+
+            prop_val = lot_prop_map.get(lot_n)
+            if prop_val is None:
+                continue
+
+            total_weighted += cum_w * prop_val
+            total_weight += cum_w
+
+        if total_weight == 0:
+            return None
+        return total_weighted / total_weight
+
+    @staticmethod
+    def _compute_coso4_total_weight(
+        step_info: dict,
+        weight_coso4: tp.Optional[list],
+    ) -> tp.Optional[float]:
+        """Compute total cumulative CoSO4 weight at this step.
+
+        weight_coso4 is list of lists of weights (grouped by metal LOT).
+        We sum all weights across all groups.
+
+        We use the metal lot list from step_info to know how many metal LOTs
+        have contributed so far, then sum CoSO4 weights for those groups.
+        """
+        if weight_coso4 is None:
+            return None
+
+        metal_info = step_info.get("metal")
+        if metal_info is None:
+            return None
+
+        lot_list = metal_info.get("lot_metal", [])
+        n_lots = len(lot_list)
+
+        total = 0.0
+        for k in range(min(n_lots, len(weight_coso4))):
+            group = weight_coso4[k]
+            for w in group:
+                total += float(w)
+
+        return total if total > 0 else None
