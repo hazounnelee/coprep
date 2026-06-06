@@ -1,16 +1,14 @@
 """
 전처리 실행 스크립트.
 Usage:
-    python preprocess.py --data-path ../../data/non_image_original/전구체/공침데이터_대입경
+    python preprocess.py --data-path ../../data/new_structure
                          --product n86l
-                         --output-dir ../../data/non_image_organized/전구체
-                         [--no-material] [--no-handrecorded]
+                         --output-dir ../../data/preprocessed
+                         [--no-material] [--no-handrecorded] [--debug]
 """
 import os
 import argparse
-import pickle
 import pandas as pd
-from collections import defaultdict
 
 from src.config.schema import PRODUCT_N86L, PRODUCT_N86S
 from src.data.loader import get_alldata
@@ -25,6 +23,7 @@ def parse_args():
     p.add_argument("--output-dir", required=True)
     p.add_argument("--no-material", action="store_true")
     p.add_argument("--no-handrecorded", action="store_true")
+    p.add_argument("--debug", action="store_true")
     return p.parse_args()
 
 
@@ -34,11 +33,11 @@ def main():
     is_material = not args.no_material
     is_handrecorded = not args.no_handrecorded
 
-    print(f"Loading Excel from: {args.data_path}")
-    data_excel = get_alldata(args.data_path)
+    print(f"Loading data from: {args.data_path}")
+    data = get_alldata(args.data_path, debug=args.debug)
 
     print("Tracking LOTs...")
-    tracker = TrackerRawData(data_excel, cfg.lines, cfg.name)
+    tracker = TrackerRawData(data, cfg.lines, cfg.name, debug=args.debug)
 
     if tracker.error_log:
         print(f"  {len(tracker.error_log)} errors logged:")
@@ -47,24 +46,17 @@ def main():
 
     print("Preprocessing features...")
     preprocesser = DataPreprocesser(
-        dict_raw=tracker.dict_lines_tracked,
-        list_lines=cfg.lines,
+        df_tracked=tracker.df_tracked,
         seq_path=cfg.seq_path,
         is_material=is_material,
         is_handrecorded=is_handrecorded,
     )
 
-    list_pre = [preprocesser.dict_lines_preprocessed[l] for l in cfg.lines]
-    list_raw = [preprocesser.dict_df_filtered[l] for l in cfg.lines]
+    df_pre = preprocesser.df_preprocessed
+    df_raw = preprocesser.df_filtered
 
-    df_pre = pd.concat(list_pre, ignore_index=True)
-    df_raw = pd.concat(list_raw, ignore_index=True)
+    print(f"  {len(df_pre)} batches total")
 
-    for line in cfg.lines:
-        n = len(preprocesser.dict_lines_preprocessed[line])
-        print(f"  {line}: {n}개 배치")
-
-    # 저장
     suffix = f"{'m' if is_material else 'mn'}_{'h' if is_handrecorded else 'hn'}"
     folder_name = f"공침데이터_{cfg.name}_{suffix}"
     out_path = os.path.join(args.output_dir, folder_name)
@@ -73,7 +65,6 @@ def main():
     df_pre.to_pickle(os.path.join(out_path, "data_preprocessed.pkl"))
     df_raw.to_pickle(os.path.join(out_path, "data_raw.pkl"))
 
-    # is_material, is_handrecorded 상태 저장
     with open(os.path.join(out_path, "config.txt"), "w") as f:
         f.write(f"is_material={is_material}\n")
         f.write(f"is_handrecorded={is_handrecorded}\n")
