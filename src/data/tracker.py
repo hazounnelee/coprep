@@ -40,7 +40,7 @@ class TrackerRawData:
         list_lines: tp.List[str],
         product_name: str,
         debug: bool = False,
-        lot_source: str = "통합일지",
+        lot_source: str = "반응투입",
     ) -> None:
         self.data = data
         self.list_lines = list_lines
