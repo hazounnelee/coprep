@@ -301,6 +301,76 @@ class TestErrorLog:
         assert isinstance(tracker.error_log, list)
 
 
+class TestLotSourceReact:
+    """반응투입스케줄(반응_init) 생산LOT번호 기준 트래킹."""
+
+    def test_df_tracked_has_rows(self, dummy_data):
+        tracker = TrackerRawData(
+            data=dummy_data,
+            list_lines=["1라인"],
+            product_name="N86L",
+            lot_source="반응투입",
+        )
+        # dummy_data의 반응_init에는 1라인 LOT 3개가 들어있음
+        assert len(tracker.df_tracked) == 3
+
+    def test_lot_reacted_matches_react_init(self, dummy_data):
+        tracker = TrackerRawData(
+            data=dummy_data,
+            list_lines=["1라인"],
+            product_name="N86L",
+            lot_source="반응투입",
+        )
+        expected = set(dummy_data["반응_init"]["생산LOT번호"])
+        assert set(tracker.df_tracked["lot_reacted"]) == expected
+
+    def test_lot_target_is_empty(self, dummy_data):
+        tracker = TrackerRawData(
+            data=dummy_data,
+            list_lines=["1라인"],
+            product_name="N86L",
+            lot_source="반응투입",
+        )
+        assert (tracker.df_tracked["lot_target"] == "").all()
+
+    def test_step_info_and_handrecorded_attached(self, dummy_data):
+        tracker = TrackerRawData(
+            data=dummy_data,
+            list_lines=["1라인"],
+            product_name="N86L",
+            lot_source="반응투입",
+        )
+        df = tracker.df_tracked
+        assert isinstance(df.at[0, "step_info_01"], dict)
+        assert isinstance(df.at[0, "df_handrecorded"], pd.DataFrame)
+        assert isinstance(df.at[0, "df_react_init"], dict)
+
+    def test_multi_line(self, dummy_data):
+        from tests.conftest import make_dummy_반응_init, make_dummy_반응_step
+
+        lots_2 = ["N86L-2A250601-02"]
+        init_2 = make_dummy_반응_init(lots_2)
+        dummy_data["반응_init"] = pd.concat(
+            [dummy_data["반응_init"], init_2], ignore_index=True
+        )
+        step_2 = make_dummy_반응_step(lots_2, n_steps=20)
+        dummy_data["반응_step"] = pd.concat(
+            [dummy_data["반응_step"], step_2], ignore_index=True
+        )
+        dummy_data["수기운전일지"]["2라인"] = [make_dummy_수기운전일지(lots_2[0])]
+
+        tracker = TrackerRawData(
+            data=dummy_data,
+            list_lines=["1라인", "2라인"],
+            product_name="N86L",
+            lot_source="반응투입",
+        )
+        assert len(tracker.df_tracked) == 4
+        assert set(tracker.df_tracked["lot_reacted"]) == set(
+            dummy_data["반응_init"]["생산LOT번호"]
+        )
+
+
 class TestMultiLine:
     def test_multi_line_combines_results(self, dummy_data):
         """If data has multiple lines, df_tracked should have rows from all."""

@@ -8,6 +8,9 @@ INT_LENGTH = 60
 
 PATTERN_LOT = r"([A-Za-z]\d{2}[A-Za-z]-\d{1,2}[A-Za-z]\d{6}-\d{1,2})[A-Za-z]?.*"
 
+# 생산LOT번호(예: "N86L-1A250501-02")에서 라인 번호("1") 추출
+PATTERN_LOT_LINE = re.compile(r"^[A-Za-z]\d{2}[A-Za-z]-(\d{1,2})[A-Za-z]\d{6}-\d{1,2}")
+
 
 def extract_lot(text: str) -> str:
     matches = re.findall(PATTERN_LOT, str(text))
@@ -37,16 +40,21 @@ class TrackerRawData:
         list_lines: tp.List[str],
         product_name: str,
         debug: bool = False,
+        lot_source: str = "통합일지",
     ) -> None:
         self.data = data
         self.list_lines = list_lines
         self.product_name = product_name
         self.debug = debug
+        self.lot_source = lot_source
         self.error_log: tp.List[str] = []
         self.df_tracked = self._track()
 
     def _track(self) -> pd.DataFrame:
         """Track all lines and return a single combined DataFrame."""
+        if self.lot_source == "반응투입":
+            return self._track_from_react()
+
         frames = []
         for line in self.list_lines:
             df_integrated = self.data["통합일지"].get(line)
@@ -55,6 +63,46 @@ class TrackerRawData:
                 continue
             df_line = self._track_line(df_integrated, line)
             frames.append(df_line)
+
+        if not frames:
+            return pd.DataFrame()
+        return pd.concat(frames, ignore_index=True)
+
+    def _track_from_react(self) -> pd.DataFrame:
+        """반응투입스케줄(반응_init)의 생산LOT번호 기준으로 트래킹.
+
+        통합일지 대신 반응_init의 생산LOT번호 목록을 기준 LOT으로 사용한다.
+        LOT 문자열에서 라인 번호를 추출해 라인별로 묶은 뒤, 기존
+        _attach_* 단계(반응투입/용해/원재료/수기운전일지)를 그대로 적용한다.
+        lot_target은 통합일지(포장 Lot No)에서만 얻을 수 있으므로 빈 문자열로 둔다.
+        """
+        df_react_init = self.data.get("반응_init", pd.DataFrame())
+        if df_react_init.empty or "생산LOT번호" not in df_react_init.columns:
+            _debug("반응_init 비어 있음 또는 생산LOT번호 컬럼 없음", self.debug)
+            return pd.DataFrame()
+
+        lots = df_react_init["생산LOT번호"].dropna().astype(str).unique().tolist()
+        lots = [lot for lot in lots if self.product_name.lower() in lot.lower()]
+
+        line_of: dict[str, tp.Optional[str]] = {}
+        for lot in lots:
+            m = PATTERN_LOT_LINE.match(lot)
+            line_of[lot] = f"{m.group(1)}라인" if m else None
+
+        frames = []
+        for line in self.list_lines:
+            lots_line = [lot for lot in lots if line_of.get(lot) == line]
+            if not lots_line:
+                continue
+            df_lots = pd.DataFrame({
+                "lot_reacted": lots_line,
+                "lot_target": "",
+            })
+            df = self._attach_reaction(df_lots, line)
+            df = self._attach_melting(df, line)
+            df = self._attach_naoh(df, line)
+            df = self._attach_materials(df, line)
+            frames.append(df)
 
         if not frames:
             return pd.DataFrame()
