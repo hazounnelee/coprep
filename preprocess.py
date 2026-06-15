@@ -23,6 +23,7 @@ def parse_args():
     p.add_argument("--output-dir", required=True)
     p.add_argument("--no-material", action="store_true")
     p.add_argument("--no-handrecorded", action="store_true")
+    p.add_argument("--lot-source", default="반응투입", choices=["통합일지", "반응투입"])
     p.add_argument("--debug", action="store_true")
     return p.parse_args()
 
@@ -37,7 +38,7 @@ def main():
     data = get_alldata(args.data_path, debug=args.debug)
 
     print("Tracking LOTs...")
-    tracker = TrackerRawData(data, cfg.lines, cfg.name, debug=args.debug)
+    tracker = TrackerRawData(data, cfg.lines, cfg.name, debug=args.debug, lot_source=args.lot_source)
 
     if tracker.error_log:
         print(f"  {len(tracker.error_log)} errors logged:")
