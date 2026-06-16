@@ -166,7 +166,7 @@ def dummy_data():
     """New-format data dict matching loader.get_alldata() output."""
     np.random.seed(42)
 
-    lots = ["N86L-1A250501-02", "N86L-1A250502-02", "N86L-1A250503-02"]
+    lots = ["GC01R1N86L25111701", "GC01R1N86L25111301", "GC01R1N86L25111001"]
     metal_lots = ["METAL-LOT-001", "METAL-LOT-002", "METAL-LOT-003"]
 
     data = {}
