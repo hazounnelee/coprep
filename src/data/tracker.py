@@ -8,8 +8,8 @@ INT_LENGTH = 60
 
 PATTERN_LOT = r"([A-Za-z]\d{2}[A-Za-z]-\d{1,2}[A-Za-z]\d{6}-\d{1,2})[A-Za-z]?.*"
 
-# 생산LOT번호(예: "N86L-1A250501-02")에서 라인 번호("1") 추출
-PATTERN_LOT_LINE = re.compile(r"^[A-Za-z]\d{2}[A-Za-z]-(\d{1,2})[A-Za-z]\d{6}-\d{1,2}")
+# 생산LOT번호(예: "GC01R1N86L25111701")에서 라인 번호("1") 추출
+PATTERN_LOT_LINE = re.compile(r'^GC(\d{2})')
 
 
 def extract_lot(text: str) -> str:
@@ -87,7 +87,7 @@ class TrackerRawData:
         line_of: dict[str, tp.Optional[str]] = {}
         for lot in lots:
             m = PATTERN_LOT_LINE.match(lot)
-            line_of[lot] = f"{m.group(1)}라인" if m else None
+            line_of[lot] = f"{int(m.group(1))}라인" if m else None
 
         frames = []
         for line in self.list_lines:

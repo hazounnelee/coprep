@@ -348,7 +348,7 @@ class TestLotSourceReact:
     def test_multi_line(self, dummy_data):
         from tests.conftest import make_dummy_반응_init, make_dummy_반응_step
 
-        lots_2 = ["N86L-2A250601-02"]
+        lots_2 = ["GC02R1N86L25060101"]
         init_2 = make_dummy_반응_init(lots_2)
         dummy_data["반응_init"] = pd.concat(
             [dummy_data["반응_init"], init_2], ignore_index=True
@@ -376,9 +376,8 @@ class TestMultiLine:
         """If data has multiple lines, df_tracked should have rows from all."""
         # Add 2라인 data
         from tests.conftest import make_dummy_통합일지, make_dummy_반응_init, make_dummy_반응_step
-        lots_2 = ["N86L-2A250601-02"]
+        lots_2 = ["GC02R1N86L25060101"]
         dummy_data["통합일지"]["2라인"] = make_dummy_통합일지(n_lots=1)
-        # Fix the lot in 통합일지 for 2라인
         dummy_data["통합일지"]["2라인"].iloc[4, 0] = lots_2[0]
 
         # Add 반응 data for the new lot
